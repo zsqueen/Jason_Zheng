@@ -42,6 +42,7 @@ class BiliPanel(QDialog):
         self.service = BiliService(directory)
         self.jobs = set()
         self.pending_approvals = []
+        self.reply_due = time.time() + 8
         self.watch_due = 0
         self.bridge = Bridge(self)
         self.bridge.finished.connect(self._finished)
@@ -108,6 +109,9 @@ class BiliPanel(QDialog):
             "dynamic_gap_min": "动态最短间隔（分钟）",
             "dynamic_auto": "到点自动发今天的阅读动态",
             "dynamic_time": "动态时间（北京时间HH:mm）",
+            "auto_reply": "自动关注并回复新私信（可爱妹子）",
+            "reply_interval": "自动回复检查间隔（秒）",
+            "reply_hour_limit": "每小时自动回复上限",
             "watch_on": "定时检查新消息（只通知，不代回）",
             "watch_interval": "消息检查间隔（秒）",
             "watch_scope": "消息检查时段",
@@ -141,6 +145,8 @@ class BiliPanel(QDialog):
             "per_day": (0, 50),
             "gap_min": (5, 720),
             "watch_interval": (60, 1800),
+            "reply_interval": (5, 120),
+            "reply_hour_limit": (1, 60),
             "dynamic_per_day": (1, 10),
             "dynamic_gap_min": (1, 720),
         }
@@ -187,7 +193,7 @@ class BiliPanel(QDialog):
         self.login_timer.timeout.connect(self.poll_login)
         self.scheduler = QTimer(self)
         self.scheduler.timeout.connect(self.tick)
-        self.scheduler.start(15000)
+        self.scheduler.start(2000)
         self.refresh_status()
         self.refresh_history()
 
@@ -256,7 +262,8 @@ class BiliPanel(QDialog):
             return
         old = self.service.config()
         outgoing = (
-            (values["auto_comment"] and values["dm_mode"] != "only")
+            values["auto_reply"]
+            or (values["auto_comment"] and values["dm_mode"] != "only")
             or values["dm_mode"] != "off"
             or values["triple_mode"] != "off"
             or (values["dynamic_on"] and values["dynamic_auto"])
@@ -264,6 +271,7 @@ class BiliPanel(QDialog):
         changed = any(
             values[k] != old[k]
             for k in (
+                "auto_reply",
                 "auto_comment",
                 "mention_name",
                 "dm_mode",
@@ -277,12 +285,14 @@ class BiliPanel(QDialog):
             answer = QMessageBox.question(
                 self,
                 "允许自动账号操作？",
-                "保存后每轮可能使用你的B站账号发评论、私信或点赞收藏；到点可能发公开动态。\n仅对当前勾选的操作和目标生效。是否授权？",
+                "保存后每轮可能使用你的B站账号发评论、私信或点赞收藏；到点可能发公开动态。\n自动回复会先关注新私信的发送者，再以可爱AI妹子语气回复。仅对当前勾选的操作和目标生效。是否授权？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        if values["auto_reply"] and not old["auto_reply"]:
+            self.service.update_state({"reply_enabled_at": time.time()})
         cfg = self.service.save_config(values)
         self.fields["dynamic_time"].setText(cfg["dynamic_time"])
         self.watch_due = time.time() + cfg["watch_interval"]
@@ -469,6 +479,15 @@ class BiliPanel(QDialog):
         if self.service.closed or not self.service.status()["logged_in"]:
             return
         cfg = self.service.config()
+        if cfg["auto_reply"] and time.time() >= self.reply_due and "auto_reply" not in self.jobs:
+            self.reply_due = time.time() + cfg["reply_interval"]
+            def replied(value, error):
+                if error:
+                    self.reply_due = time.time() + 30
+                    self.inbox_text.append("自动回复检查失败：" + error)
+                elif value:
+                    self.inbox_text.append("\n".join(value))
+            self.run("auto_reply", lambda: self.service.auto_reply_messages(*self.credentials()), replied)
         now = datetime.now(BEIJING)
         if due_scan(cfg, self.service.state, now):
             self.scan(automatic=True)
@@ -554,9 +573,7 @@ class BiliPanel(QDialog):
                 self.report.setPlainText("请求失败：" + error)
                 return
             self.remember(user_msg, value)
-            self.pet.say(
-                value if len(value) <= 100 else value[:90] + "…完整内容见B站面板"
-            )
+            self.pet.say(value)
             if len(value) > 100 or self.service.status()["report"]:
                 self.report.setPlainText(value)
                 self.refresh_history()

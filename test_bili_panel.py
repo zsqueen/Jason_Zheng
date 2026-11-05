@@ -44,6 +44,16 @@ class PanelTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertFalse(self.panel.jobs)
 
+    def test_chat_preserves_full_reply_and_clears_busy(self):
+        reply = "完整回复" * 60
+        with patch.object(self.panel.service, "chat", return_value=reply):
+            self.panel.chat([{"role": "system", "content": "test"}], "question", "test")
+            self.wait_jobs()
+        self.assertFalse(self.pet.ds_busy)
+        self.assertEqual(self.speech[-1], reply)
+        self.assertEqual(self.pet.chat_history[-1]["content"], reply)
+        self.assertEqual(self.panel.report.toPlainText(), reply)
+
     def test_incoming_notification_display_memory_and_dedup(self):
         item = {"key": "dm:456:1", "kind": "dm", "uid": "456", "text": "test incoming"}
         with (

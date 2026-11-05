@@ -35,6 +35,43 @@ class BiliTests(unittest.TestCase):
         self.service.close()
         self.temporary.cleanup()
 
+    def test_auto_reply_new_message_dedup_and_follow_requirement(self):
+        import tempfile
+        import time
+        from unittest.mock import AsyncMock, patch
+        from types import SimpleNamespace
+        from bili import BiliService, write_json
+        with tempfile.TemporaryDirectory() as directory:
+            service = BiliService(directory)
+            try:
+                service.save_config({"auto_reply": True})
+                service.update_state({"reply_enabled_at": time.time()-5})
+                cred = SimpleNamespace(dedeuserid="1")
+                message = {"sender_uid": 2, "msg_key": "new", "msg_type": 1,
+                           "timestamp": time.time(), "content": '{"content":"hello"}'}
+                with (
+                    patch.object(service, "credential", return_value=cred),
+                    patch("bilibili_api.session.get_sessions", new=AsyncMock(return_value={"session_list":[{"talker_id":2,"unread_count":1}]})),
+                    patch("bilibili_api.session.fetch_session_msgs", new=AsyncMock(return_value={"messages":[message]})),
+                    patch("bilibili_api.user.User.get_relation", new=AsyncMock(return_value={"relation":{"attribute":0}})) as relation,
+                    patch("bilibili_api.user.User.modify_relation", new=AsyncMock()) as follow,
+                    patch.object(service, "completion", return_value={"content":"你好呀~"}) as model,
+                    patch.object(service, "_request", return_value={"success":True}) as send,
+                ):
+                    self.assertIn("关注尚未确认", service.auto_reply_messages("key","base","model")[0])
+                    model.assert_not_called()
+                    follow.assert_awaited_once()
+                    follow.reset_mock()
+                    relation.side_effect=[{"relation":{"attribute":0}}, {"relation":{"attribute":2}}]
+                    self.assertEqual(len(service.auto_reply_messages("key","base","model")),1)
+                    follow.assert_awaited_once()
+                    service.auto_reply_messages("key","base","model")
+                    send.assert_called_once_with("bili_send_message", {"receiver_uid":2,"text":"你好呀~"})
+                    service.save_config({"auto_reply":False})
+                    self.assertEqual(service.auto_reply_messages("key","base","model"), [])
+            finally:
+                service.close()
+
     def test_defaults_do_not_publish_or_poll(self):
         cfg = self.service.config()
         self.assertEqual(cfg["auto_mode"], "manual")
