@@ -1,5 +1,6 @@
 # 运行时生成
 config.json
+bili-data/
 
 # 虚拟环境
 .venv/

@@ -18,6 +18,8 @@ import subprocess
 import sys
 import threading
 
+from bili_panel import BiliPanel
+
 
 def load_config():
     try:
@@ -527,6 +529,10 @@ class PetWindow(QWidget):
         )
         self.speech_label.hide()
 
+        self.bili_panel = BiliPanel(
+            self, os.path.join(APP_DIR, "bili-data"), DS_BASE_URL, DS_MODEL
+        )
+
         # 托盘
         self.tray = QSystemTrayIcon(self.icon, self)
         self.tray.setContextMenu(self._build_menu())
@@ -763,55 +769,7 @@ class PetWindow(QWidget):
             messages.extend(self.chat_history[-self.max_history :])
         messages.append({"role": "user", "content": user_msg})
 
-        def worker():
-            url = f"{DS_BASE_URL}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": DS_MODEL,
-                "messages": messages,
-                "max_tokens": 50,
-                "temperature": 0.9,
-            }
-            try:
-                resp = requests.post(
-                    url, json=payload, headers=headers, timeout=(10, 120)
-                )
-                if resp.status_code == 200:
-                    reply = resp.json()["choices"][0]["message"]["content"].strip()
-                    reply = reply.replace("\n", " ").replace("\r", "")
-                    while "  " in reply:
-                        reply = reply.replace("  ", " ")
-                    if len(reply) > 25:
-                        reply = reply[:23] + "…"
-                    # 存入历史
-                    with self.memory_lock:
-                        self.chat_history.append({"role": "user", "content": user_msg})
-                        self.chat_history.append(
-                            {"role": "assistant", "content": reply}
-                        )
-                        self.chat_history = self.chat_history[-self.max_history :]
-                    self._queue_say(reply)
-                else:
-                    error_msg = (
-                        resp.json()
-                        .get("error", {})
-                        .get("message", str(resp.status_code))
-                    )
-                    self._queue_say(f"API错误: {error_msg[:12]}")
-                    print(f"[DeepSeek] 状态码: {resp.status_code}, 返回: {resp.text}")
-            except requests.exceptions.Timeout:
-                self._queue_say("接口响应超时，请稍后重试")
-            except requests.exceptions.ConnectionError:
-                self._queue_say("连接失败，检查网络")
-            except Exception as e:
-                self._queue_say(f"请求失败: {str(e)[:12]}")
-            finally:
-                self.ds_busy = False
-
-        threading.Thread(target=worker, daemon=True).start()
+        self.bili_panel.chat(messages, user_msg, DS_SYSTEM)
 
     # ---------- 绘制 ----------
     def paintEvent(self, _):
@@ -1304,6 +1262,10 @@ class PetWindow(QWidget):
         reaction.triggered.connect(self._toggle_screen_reaction)
         m.addAction("看看屏幕说一句", lambda: self._screen_reaction(force=True))
         m.addAction("查看天气", self._get_weather)
+        bili_menu = m.addMenu("B站")
+        bili_menu.addAction("B站面板 / 设置 / 扫码登录", self.bili_panel.show)
+        bili_menu.addAction("现在刷一轮", self.bili_panel.scan)
+        bili_menu.addAction("检查新消息", self.bili_panel.inbox)
         m.addSeparator()
         m.addAction("显示/隐藏", self.toggle_visible)
         m.addAction("回到屏幕内", self.snap_into_screen)
@@ -1438,6 +1400,7 @@ class PetWindow(QWidget):
             self.raise_()
 
     def quit_app(self):
+        self.bili_panel.shutdown()
         self.speech_label.hide()
         self.cfg["x"], self.cfg["y"] = self.x(), self.y()
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:

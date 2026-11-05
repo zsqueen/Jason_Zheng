@@ -43,14 +43,35 @@ DeepSeek V4 Pro 二创形象「鲸鱼娘·大肥鱼」的透明桌面宠物。
   - **显卡（NVIDIA）**：温度超过 80°C 时冒泡提醒（`pynvml` 读取）
   - 检测间隔 10 秒，不频繁打扰
 
-## 运行
+## B站能力（不需要DSH）
+
+直接集成在桌宠中，使用原来的模型接口和API Key，不安装DSH、Node或MCP服务。
+
+- 右键桌宠或托盘 → **B站 → B站面板 / 设置 / 扫码登录**，用B站App扫码并确认。
+- 面板里点**刷一轮**，按方向搜索、读取第一分P字幕和热门评论，再由大肥鱼介绍结果。
+- 聊天里可以说“帮我刷一下AI方向的B站视频”或“看看BV1xxxxxxxxx这条视频”。
+- 支持只手动、谷时和全天自动刷，配置每日轮数、轮间隔、播放量和发布时间门槛。
+- 阅读助手可单独指定OpenAI兼容接口URL、模型和Key，留空沿用桌宠的模型配置。
+- 阅读报告、逐视频笔记、看过记录保存在`bili-data/`；选中并归档的视频才记为看过。
+- 支持评论、楼中楼回复、私信、图文动态、点赞和收藏。普通聊天触发账号操作时会弹窗显示目标和正文，必须确认，不支持投币或`force`绕过。
+- 每轮自动评论、私信、点赞收藏、定点动态都默认关闭；主动在设置中开启并确认授权后才执行。
+- 支持定时检查私信、@和回复，只递送通知，不自动回复陌生人的消息。可设置UID白名单。
+- 不分析视频画面。常规扫描无字幕的视频跳过；指定BV可以根据简介和评论说明局限。
+
+凭证只存在本机`bili-data/credential.json`。字幕、评论和报告会发送到你配置的模型服务以完成分析；私信通知可作为聊天背景发送给该服务。`bili-data/`已加入Git忽略，不要分享这个目录。桌宠退出或电脑睡眠期间不会自动刷站，错过超过3小时的定点动态不补发。
+
+本功能参考[Yuuyuko-uu/dsh-bili-subagent](https://github.com/Yuuyuko-uu/dsh-bili-subagent)的工作流，重新实现了桌宠原生Python编排；B站接口使用`bilibili-api-python`，未引入DSH插件源码或其运行环境。
+
+离线回归测试：`python -m unittest test_bili -v`。测试不登录B站、不发消息、不调用真实模型。
+
+## 运行环境
 
 需要 **Python 3.11+**
 
 ```bash
 pip install -r requirements.txt
 # 或
-pip install PySide6
+pip install -r requirements.txt
 ```
 
 然后双击 `启动桌宠.bat`，或：
@@ -63,10 +84,10 @@ python 桌宠.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --name 大肥鱼桌宠 --add-data "sprites;sprites" --icon icon.ico 桌宠.py
+pyinstaller --noconfirm 桌宠.spec
 ```
 
-产物在 `dist/大肥鱼桌宠.exe`，对方双击即用，无需安装 Python。
+产物在 `dist/桌宠.exe`，对方双击即用，无需安装 Python。
 （杀毒软件可能对 PyInstaller 产物误报，加信任即可。）
 
 ## 更换形象
