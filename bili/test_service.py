@@ -1,4 +1,3 @@
-import asyncio
 import json
 import tempfile
 import unittest
@@ -6,9 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from bili import (
+from .service import (
     BEIJING,
-    CHAT_TOOLS,
     DEFAULTS,
     READ_TOOLS,
     BiliService,
@@ -35,40 +33,140 @@ class BiliTests(unittest.TestCase):
         self.service.close()
         self.temporary.cleanup()
 
+    def test_remote_chat_tools_and_write_approval(self):
+        calls = [
+            ("bili_search", {"keyword": "anime"}),
+            ("bili_scan", {"direction": "anime"}),
+            ("bili_send_dynamic", {"text": "test"}),
+            ("bili_inbox", {}),
+        ]
+        response = {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": str(i),
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }
+                for i, (name, args) in enumerate(calls)
+            ],
+        }
+        messages = [{"role": "user", "content": "Bilibili anime"}]
+        with (
+            patch.object(
+                self.service,
+                "completion",
+                side_effect=[response, {"role": "assistant", "content": "tool result"}],
+            ) as completion,
+            patch.object(self.service, "api", return_value={"videos": []}) as api,
+            patch.object(
+                self.service, "scan", return_value={"report": "report"}
+            ) as scan,
+            patch.object(self.service, "deliver") as deliver,
+            patch.object(self.service, "_request") as write,
+        ):
+            approve = MagicMock(return_value=False)
+            progress = MagicMock()
+            self.assertEqual(
+                self.service.chat(
+                    messages,
+                    "key",
+                    "base",
+                    "model",
+                    approve,
+                    remote=True,
+                    progress=progress,
+                ),
+                "tool result",
+            )
+            api.assert_called_once_with("bili_search", {"keyword": "anime"})
+            scan.assert_called_once_with("anime", "", "key", "base", "model")
+            deliver.assert_not_called()
+            progress.assert_called_once_with()
+            write.assert_not_called()
+            approve.assert_called_once_with("bili_send_dynamic", {"text": "test"})
+            names = {t["function"]["name"] for t in completion.call_args.args[4]}
+            self.assertTrue(
+                {"bili_inbox", "bili_status", "bili_whoami"}.isdisjoint(names)
+            )
+            results = [
+                json.loads(m["content"]) for m in messages if m["role"] == "tool"
+            ]
+            self.assertTrue(results[2]["blocked"])
+            self.assertIn("error", results[3])
+
     def test_auto_reply_new_message_dedup_and_follow_requirement(self):
         import tempfile
         import time
-        from unittest.mock import AsyncMock, patch
         from types import SimpleNamespace
-        from bili import BiliService, write_json
+        from unittest.mock import AsyncMock, patch
+
+        from .service import BiliService
+
         with tempfile.TemporaryDirectory() as directory:
             service = BiliService(directory)
             try:
                 service.save_config({"auto_reply": True})
-                service.update_state({"reply_enabled_at": time.time()-5})
+                service.update_state({"reply_enabled_at": time.time() - 5})
                 cred = SimpleNamespace(dedeuserid="1")
-                message = {"sender_uid": 2, "msg_key": "new", "msg_type": 1,
-                           "timestamp": time.time(), "content": '{"content":"hello"}'}
+                message = {
+                    "sender_uid": 2,
+                    "msg_key": "new",
+                    "msg_type": 1,
+                    "timestamp": time.time(),
+                    "content": '{"content":"hello"}',
+                }
                 with (
                     patch.object(service, "credential", return_value=cred),
-                    patch("bilibili_api.session.get_sessions", new=AsyncMock(return_value={"session_list":[{"talker_id":2,"unread_count":1}]})),
-                    patch("bilibili_api.session.fetch_session_msgs", new=AsyncMock(return_value={"messages":[message]})),
-                    patch("bilibili_api.user.User.get_relation", new=AsyncMock(return_value={"relation":{"attribute":0}})) as relation,
-                    patch("bilibili_api.user.User.modify_relation", new=AsyncMock()) as follow,
-                    patch.object(service, "completion", return_value={"content":"你好呀~"}) as model,
-                    patch.object(service, "_request", return_value={"success":True}) as send,
+                    patch(
+                        "bilibili_api.session.get_sessions",
+                        new=AsyncMock(
+                            return_value={
+                                "session_list": [{"talker_id": 2, "unread_count": 1}]
+                            }
+                        ),
+                    ),
+                    patch(
+                        "bilibili_api.session.fetch_session_msgs",
+                        new=AsyncMock(return_value={"messages": [message]}),
+                    ),
+                    patch(
+                        "bilibili_api.user.User.get_relation",
+                        new=AsyncMock(return_value={"relation": {"attribute": 0}}),
+                    ) as relation,
+                    patch(
+                        "bilibili_api.user.User.modify_relation", new=AsyncMock()
+                    ) as follow,
+                    patch.object(
+                        service, "completion", return_value={"content": "你好呀~"}
+                    ) as model,
+                    patch.object(
+                        service, "_request", return_value={"success": True}
+                    ) as send,
                 ):
-                    self.assertIn("关注尚未确认", service.auto_reply_messages("key","base","model")[0])
+                    self.assertIn(
+                        "关注尚未确认",
+                        service.auto_reply_messages("key", "base", "model")[0],
+                    )
                     model.assert_not_called()
                     follow.assert_awaited_once()
                     follow.reset_mock()
-                    relation.side_effect=[{"relation":{"attribute":0}}, {"relation":{"attribute":2}}]
-                    self.assertEqual(len(service.auto_reply_messages("key","base","model")),1)
+                    relation.side_effect = [
+                        {"relation": {"attribute": 0}},
+                        {"relation": {"attribute": 2}},
+                    ]
+                    self.assertEqual(
+                        len(service.auto_reply_messages("key", "base", "model")), 1
+                    )
                     follow.assert_awaited_once()
-                    service.auto_reply_messages("key","base","model")
-                    send.assert_called_once_with("bili_send_message", {"receiver_uid":2,"text":"你好呀~"})
-                    service.save_config({"auto_reply":False})
-                    self.assertEqual(service.auto_reply_messages("key","base","model"), [])
+                    service.auto_reply_messages("key", "base", "model")
+                    send.assert_called_once_with(
+                        "bili_send_message", {"receiver_uid": 2, "text": "你好呀~"}
+                    )
+                    service.save_config({"auto_reply": False})
+                    self.assertEqual(
+                        service.auto_reply_messages("key", "base", "model"), []
+                    )
             finally:
                 service.close()
 

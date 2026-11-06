@@ -5,7 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from bili import BiliService, read_json, write_json
+from .service import BiliService, read_json, write_json
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     args = parser.parse_args()
     if not args.execute_approved:
         parser.error("Requires explicit approval of targets, text and account actions")
-    service = BiliService(Path(__file__).resolve().parent / "bili-data")
+    service = BiliService(Path(__file__).resolve().parent.parent / "bili-data")
     journal_path = service.home / "live-write-check.json"
     journal = read_json(journal_path, {})
     target = {"bvid": args.bvid, "uid": args.uid}

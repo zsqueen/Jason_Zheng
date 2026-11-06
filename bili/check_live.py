@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from bili import WRITE_TOOLS, BiliService, read_json
+from .service import WRITE_TOOLS, BiliService, read_json
 
 
 def check_panel():
@@ -83,7 +83,7 @@ def main():
     if "--panel" in sys.argv:
         check_panel()
         return
-    home = Path(__file__).resolve().parent
+    home = Path(__file__).resolve().parent.parent
     pet = importlib.import_module("桌宠")
     config = read_json(home / "config.json", {})
     service = BiliService(home / "bili-data")
@@ -92,7 +92,7 @@ def main():
         from PySide6.QtGui import QPixmap
         from PySide6.QtWidgets import QApplication, QDialog, QLabel, QVBoxLayout
 
-        app = QApplication.instance() or QApplication([])
+        _app = QApplication.instance() or QApplication([])
         dialog = QDialog()
         dialog.setWindowTitle("大肥鱼 B站登录校验")
         layout = QVBoxLayout(dialog)

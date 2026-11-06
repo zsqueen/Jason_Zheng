@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
-from bili_panel import BiliPanel
+from .panel import BiliPanel
 
 
 class PanelTests(unittest.TestCase):
@@ -108,8 +108,8 @@ class PanelTests(unittest.TestCase):
             patch.object(
                 self.panel.service, "status", return_value={"logged_in": True}
             ),
-            patch("bili_panel.due_scan", return_value=True),
-            patch("bili_panel.due_dynamic", return_value=False),
+            patch("bili.panel.due_scan", return_value=True),
+            patch("bili.panel.due_dynamic", return_value=False),
             patch.object(self.panel, "scan") as scan,
         ):
             self.panel.tick()
