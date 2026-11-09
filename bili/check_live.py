@@ -38,7 +38,11 @@ def check_panel():
             "dynamic_on": False,
         }
 
-    bvid = "BV16z446yEWp"
+    bvid = (
+        sys.argv[sys.argv.index("--bvid") + 1]
+        if "--bvid" in sys.argv
+        else "BV16z446yEWp"
+    )
     service._request = request
     service.config = config
     service.scan = lambda direction, bv, key, base, model: original_scan(
@@ -46,7 +50,7 @@ def check_panel():
     )
     try:
         panel.scan()
-        deadline = time.monotonic() + 500
+        deadline = time.monotonic() + 1800
         while "scan" in panel.jobs and time.monotonic() < deadline:
             app.processEvents()
             time.sleep(0.05)
@@ -171,9 +175,11 @@ def main():
     service.completion = completion
     try:
         service.api("bili_whoami")
+        bvid = sys.argv[sys.argv.index("--bvid") + 1] if "--bvid" in sys.argv else ""
         result = service.scan(
-            "", "", config.get("ds_api_key", ""), pet.DS_BASE_URL, pet.DS_MODEL
+            "", bvid, config.get("ds_api_key", ""), pet.DS_BASE_URL, pet.DS_MODEL
         )
+        print("画面分析:", result.get("visual", {}), flush=True)
         print("归档成功:", result["bvids"], result["path"], flush=True)
     finally:
         service.close()

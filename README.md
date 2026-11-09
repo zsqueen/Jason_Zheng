@@ -61,21 +61,23 @@ sprites/             桌宠素材
 直接集成在桌宠中，使用原来的模型接口和API Key，不安装DSH、Node或MCP服务。
 
 - 右键桌宠或托盘 → **B站 → B站面板 / 设置 / 扫码登录**，用B站App扫码并确认。
-- 面板里点**刷一轮**，按方向搜索、读取第一分P字幕和热门评论，再由大肥鱼介绍结果。
+- 面板里点**刷一轮**，按方向搜索，分析所有分P的时间线抽帧、官方字幕、热门评论和采样弹幕，再由大肥鱼介绍结果。
 - 聊天里可以说“帮我刷一下AI方向的B站视频”或“看看BV1xxxxxxxxx这条视频”。
 - 支持只手动、谷时和全天自动刷，配置每日轮数、轮间隔、播放量和发布时间门槛。
 - 阅读助手可单独指定OpenAI兼容接口URL、模型和Key，留空沿用桌宠的模型配置。
 - 阅读报告、逐视频笔记、看过记录保存在`bili-data/`；选中并归档的视频才记为看过。
 - 支持评论、楼中楼回复、私信、图文动态、点赞和收藏。普通聊天触发账号操作时会弹窗显示目标和正文，必须确认，不支持投币或`force`绕过。
 - 每轮自动评论、私信、点赞收藏、定点动态都默认关闭；主动在设置中开启并确认授权后才执行。
-- 支持定时检查私信、@和回复，只递送通知，不自动回复陌生人的消息。可设置UID白名单。
-- 不分析视频画面。常规扫描无字幕的视频跳过；指定BV可以根据简介和评论说明局限。
+- 支持定时检查私信、@和回复，可设置通知UID白名单；另可明确授权自动关注并回复新私信，关注失败不回复，不自动解除黑名单。
+- 画面分析默认开启：所有分P每5秒采样，含首尾，分批发送完整画面拼图和下方字幕带给看图模型；无官方字幕也能分析。采样不是逐帧观看，没有音轨转写，可能漏掉短暂画面或硬字幕，报告明确披露限制。弹幕仅取各分P首个6分钟分段的最多200条，不代表全片热区。
+- 在B站设置中调整画面采样间隔（1–60秒）和帧数上限（18–720，默认360）；超过上限或512MB素材限制、下载/视觉失败均停止，不记为看过，不自动稀疏采样或冒充完成。关闭画面分析时退回文字阅读。阅读助手必须支持图片，图片也会发送到该模型服务。
+- FFmpeg由`imageio-ffmpeg`依赖提供，可用`FFMPEG`环境变量指定已有工具。视频、抽帧临时素材用后删除；时间点、视觉笔记、字幕和评论证据保存在`bili-data/reports/*-evidence.json`。
 
 凭证只存在本机`bili-data/credential.json`。字幕、评论和报告会发送到你配置的模型服务以完成分析；私信通知可作为聊天背景发送给该服务。`bili-data/`已加入Git忽略，不要分享这个目录。桌宠退出或电脑睡眠期间不会自动刷站，错过超过3小时的定点动态不补发。
 
-本功能参考[Yuuyuko-uu/dsh-bili-subagent](https://github.com/Yuuyuko-uu/dsh-bili-subagent)的工作流，重新实现了桌宠原生Python编排；B站接口使用`bilibili-api-python`，未引入DSH插件源码或其运行环境。
+本功能参考[Yuuyuko-uu/dsh-bili-subagent](https://github.com/Yuuyuko-uu/dsh-bili-subagent)的阅读工作流和[Alterssss/dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)的画面抽帧、字幕带及多源证据设计，独立实现桌宠原生Python编排；不是整套whale插件移植，未接入其日记、生物钟或直播功能。B站接口使用`bilibili-api-python`，未引入DSH插件源码或其运行环境。
 
-离线回归测试：`python -m unittest bili.test_service -v`。测试不登录B站、不发消息、不调用真实模型。只读实测入口：`python -m bili.check_live`；登录校验追加`--login`。账号写入检查入口为`python -m bili.check_writes`，必须先明确授权目标及操作。
+离线回归测试：`python -m unittest bili.test_service bili.test_watch bili.test_panel -v`。测试不登录B站、不发消息、不调用真实模型，但包含本机FFmpeg解码验证。只读实测入口：`python -m bili.check_live --bvid <BV号>`；Qt实测追加`--panel -platform offscreen`，登录校验追加`--login`。账号写入检查入口为`python -m bili.check_writes`，必须先明确授权目标及操作。
 
 ## QQ能力（不需要DSH）
 

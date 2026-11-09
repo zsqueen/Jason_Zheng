@@ -323,6 +323,7 @@ class BiliTests(unittest.TestCase):
         self.assertFalse(result)
 
     def test_scan_persists_only_selected_not_all_candidates(self):
+        self.service.save_config({"visual_on": False})
         responses = [
             {
                 "role": "assistant",

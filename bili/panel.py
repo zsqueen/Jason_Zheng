@@ -99,6 +99,9 @@ class BiliPanel(QDialog):
             "sub_model": "阅读助手模型（留空沿用）",
             "sub_api_key": "阅读助手Key（留空沿用）",
             "scan_prompt": "阅读提示词（留空内置；支持{n}）",
+            "visual_on": "分析全视频画面（所有分P，需看图模型）",
+            "frame_interval": "画面采样间隔（秒，越小越费时）",
+            "frame_limit": "每条视频最大采样帧数（超出则停止）",
             "auto_comment": "允许每轮自动评论（公开发言）",
             "mention_name": "自动评论末尾@的昵称",
             "dm_mode": "每轮结果投递",
@@ -149,6 +152,8 @@ class BiliPanel(QDialog):
             "reply_hour_limit": (1, 60),
             "dynamic_per_day": (1, 10),
             "dynamic_gap_min": (1, 720),
+            "frame_interval": (1, 60),
+            "frame_limit": (18, 720),
         }
         for key, default in DEFAULTS.items():
             if key in choices:
@@ -174,7 +179,7 @@ class BiliPanel(QDialog):
             self.fields[key] = field
             form.addRow(labels[key], field)
         note = QLabel(
-            "自动刷站、发评论、私信、点赞收藏、动态和消息监听默认关闭。\n谷时：工作日09点前、12-14点、18点后及整个周末。\n字幕和报告会发送到你配置的模型接口；B站登录凭证只保存在本机。\n普通聊天要求发送时仍需逐次弹窗确认，不存在force绕过。"
+            "画面分析默认开启，所有分P每5秒采样且包含首尾；不是逐帧观看，可能漏掉短暂画面/硬字幕。每条最多360帧，素材最多512MB。\n图片、字幕、评论和报告会发送到阅读助手模型，请选择支持图片的接口；原视频和抽帧临时文件用后删除。\n自动刷站和公开操作默认关闭；谷时：工作日09点前、12-14点、18点后及整个周末。普通聊天发送仍需逐次确认。"
         )
         note.setWordWrap(True)
         form.addRow(note)
@@ -381,7 +386,17 @@ class BiliPanel(QDialog):
         cfg = self.service.config()
 
         def work():
-            result = self.service.scan(cfg["direction"], "", key, base, model)
+            def progress(done, total):
+                pct = int(done * 100 / max(total, 1))
+                self.bridge.finished.emit(
+                    ("progress", f"画面分析 {pct}%（{done}/{total}）")
+                )
+
+            self.service._scan_progress = progress
+            try:
+                result = self.service.scan(cfg["direction"], "", key, base, model)
+            finally:
+                self.service._scan_progress = None
             try:
                 result["summary"] = self.service.deliver(result, key, base, model)
             except Exception as exc:
@@ -390,6 +405,9 @@ class BiliPanel(QDialog):
 
         def completed(value, error):
             self.pet.ds_busy = False
+            if isinstance(value, tuple) and len(value) == 2 and value[0] == "progress":
+                self.status_label.setText(str(value[1]))
+                return
             if error:
                 if automatic:
                     self.service.update_state({"retry_after": time.time() + 600})
