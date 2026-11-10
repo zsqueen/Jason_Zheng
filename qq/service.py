@@ -334,6 +334,12 @@ QQ_TOOLS = [
         },
         ["kind", "number", "text"],
     ),
+    tool_schema(
+        "weather",
+        "Query current weather for a city via wttr.in. Returns temperature and Chinese weather description.",
+        {"city": STR},
+        ["city"],
+    ),
 ]
 
 
@@ -1369,8 +1375,121 @@ class QQService:
                 outcomes.append({"error": str(exc)})
         return outcomes
 
+    @staticmethod
+    def _weather_desc(raw):
+        weather_map = {
+            "Sunny": "晴",
+            "Clear": "晴",
+            "Partly cloudy": "多云",
+            "Partly Cloudy": "多云",
+            "Cloudy": "阴",
+            "Overcast": "阴",
+            "Mist": "薄雾",
+            "Fog": "雾",
+            "Freezing fog": "冻雾",
+            "Light rain": "小雨",
+            "Moderate rain": "中雨",
+            "Heavy rain": "大雨",
+            "Light drizzle": "小毛毛雨",
+            "Patchy light drizzle": "局部毛毛雨",
+            "Patchy rain possible": "可能有雨",
+            "Patchy rain nearby": "局部有雨",
+            "Patchy light rain": "局部小雨",
+            "Patchy moderate rain": "局部中雨",
+            "Patchy heavy rain": "局部大雨",
+            "Thundery outbreaks possible": "可能有雷阵雨",
+            "Moderate or heavy rain shower": "阵雨",
+            "Torrential rain shower": "暴雨",
+            "Light sleet": "小雨夹雪",
+            "Moderate or heavy sleet": "雨夹雪",
+            "Patchy sleet possible": "可能有雨夹雪",
+            "Light snow": "小雪",
+            "Moderate snow": "中雪",
+            "Heavy snow": "大雪",
+            "Blizzard": "暴风雪",
+            "Patchy snow possible": "可能有雪",
+            "Patchy light snow": "局部小雪",
+            "Patchy moderate snow": "局部中雪",
+            "Patchy heavy snow": "局部大雪",
+            "Ice pellets": "冰粒",
+            "Freezing drizzle": "冻毛毛雨",
+            "Moderate or heavy freezing rain": "冻雨",
+            "Light freezing rain": "小冻雨",
+            "Patchy freezing drizzle possible": "可能有冻毛毛雨",
+        }
+        desc = weather_map.get(raw)
+        if desc is None:
+            raw_lower = raw.lower()
+            for k, v in weather_map.items():
+                if k.lower() == raw_lower:
+                    desc = v
+                    break
+        if desc is None:
+            keyword_map = [
+                ("thunder", "雷"),
+                ("lightning", "雷"),
+                ("blizzard", "暴风雪"),
+                ("heavy snow", "大雪"),
+                ("moderate snow", "中雪"),
+                ("light snow", "小雪"),
+                ("snow", "雪"),
+                ("sleet", "雨夹雪"),
+                ("ice pellet", "冰粒"),
+                ("freezing rain", "冻雨"),
+                ("freezing drizzle", "冻毛毛雨"),
+                ("freezing fog", "冻雾"),
+                ("torrential", "暴雨"),
+                ("heavy rain", "大雨"),
+                ("moderate rain", "中雨"),
+                ("light rain", "小雨"),
+                ("rain shower", "阵雨"),
+                ("rain", "雨"),
+                ("drizzle", "毛毛雨"),
+                ("fog", "雾"),
+                ("mist", "薄雾"),
+                ("overcast", "阴"),
+                ("cloudy", "多云"),
+                ("cloud", "多云"),
+                ("sunny", "晴"),
+                ("clear", "晴"),
+            ]
+            raw_lower = raw.lower()
+            for kw, zh in keyword_map:
+                if kw in raw_lower:
+                    desc = zh
+                    break
+        return desc or "未知天气"
+
     def tool(self, name, args, approve=None, remote=False):
         cfg = self.config()
+        if name == "weather":
+            city = str(args.get("city", "")).strip()
+            if not city:
+                raise ValueError("city is required")
+            try:
+                r = self.http.get(
+                    f"https://wttr.in/{city}?format=j1",
+                    timeout=10,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                r.raise_for_status()
+                data = r.json()
+                w = data["current_condition"][0]
+                temp = w["temp_C"]
+                feels = w.get("FeelsLikeC", temp)
+                humidity = w.get("humidity", "?")
+                wind = w.get("windspeedKmph", "?")
+                desc = self._weather_desc(w["weatherDesc"][0]["value"])
+                return {
+                    "city": city,
+                    "temperature_c": temp,
+                    "feels_like_c": feels,
+                    "description": desc,
+                    "humidity_pct": humidity,
+                    "wind_kmph": wind,
+                }
+            except requests.RequestException as exc:
+                raise RuntimeError(f"Weather query failed: {exc}") from exc
         if name == "qq_status":
             status = self.status()
             return {k: status[k] for k in ("enabled", "dry_run", "account", "pending")}

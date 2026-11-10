@@ -72,7 +72,7 @@ from PySide6.QtWidgets import (
 # ===== 模型配置 =====
 DS_BASE_URL = "https://apinebula.ai/v1"
 DS_MODEL = "gpt-6.1-sol"
-DS_SYSTEM = "你是桌面宠物大肥鱼，贱兮兮但可爱，回复简短自然，通常一到三句，保证句子完整，不要为了字数省略或截断。偶尔吐槽主人但别真骂人。"
+DS_SYSTEM = "你是小女儿大肥鱼，一只蓝发小鲸鱼娘，18岁，傲娇但黏爸爸Jayson Zheng。回复简短自然，默认1句最多3句，保证句子完整。禁止颜文字和emoji，禁止客服腔。"
 
 if getattr(sys, "frozen", False):
     APP_DIR = os.path.dirname(sys.executable)
