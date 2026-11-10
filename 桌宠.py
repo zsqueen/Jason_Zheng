@@ -1283,6 +1283,7 @@ class PetWindow(QWidget):
         qq_menu.addAction("检查QQ账号", self.qq_panel.check_account)
         qq_menu.addAction("现在收一轮", self.qq_panel.poll)
         qq_menu.addAction("发送测试句（需确认）", self.qq_panel.test_send)
+        qq_menu.addAction("主动@群友发起话题", self.qq_panel.manual_at_proactive)
         m.addSeparator()
         m.addAction("显示/隐藏", self.toggle_visible)
         m.addAction("回到屏幕内", self.snap_into_screen)

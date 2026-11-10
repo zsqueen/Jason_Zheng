@@ -82,6 +82,12 @@ LABELS = {
     "space_interval_minutes": "查看动态间隔（分钟）",
     "space_like": "允许空间点赞（自动每轮3/每天20）",
     "space_comment": "允许空间评论（公开发言）",
+    "sticker_enabled": "启用大肥鱼表情包",
+    "sticker_probability": "表情包发送概率（%）",
+    "proactive_enabled": "允许主动发起私聊",
+    "proactive_interval_minutes": "主动私聊间隔（分钟）",
+    "at_proactive_enabled": "允许定时@群友发起话题",
+    "at_proactive_interval_minutes": "@群友间隔（分钟）",
 }
 
 
@@ -101,7 +107,7 @@ class QQPanel(QDialog):
         self.bridge.finished.connect(self._finished)
         self.bridge.approval.connect(self._approve)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
-        self.setWindowTitle("大肥鱼 · QQ（无需DSH）")
+        self.setWindowTitle("大肥鱼 · QQ")
         self.resize(780, 760)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         layout = QVBoxLayout(self)
@@ -114,6 +120,7 @@ class QQPanel(QDialog):
             ("现在收一轮", self.poll),
             ("真实发送测试句", self.test_send),
             ("打开QQ后端登录页", self.open_backend),
+            ("主动@群友", self.manual_at_proactive),
         ):
             button = QPushButton(title)
             button.clicked.connect(callback)
@@ -357,6 +364,75 @@ class QQPanel(QDialog):
             ),
         )
 
+    def manual_at_proactive(self):
+        key = self.pet.cfg.get("ds_api_key", "")
+        if not key:
+            QMessageBox.warning(self, "主动@", "请先配置API Key")
+            return
+        cfg = self.service.config()
+        group_bindings = [
+            b
+            for b in cfg["bindings"]
+            if b["enabled"] and b["kind"] == "group" and b["number"] == "747869735"
+        ]
+        if not group_bindings:
+            QMessageBox.warning(self, "主动@", "没有可用的群聊绑定")
+            return
+        binding = group_bindings[0]
+        try:
+            members = self.service.call(
+                "get_group_member_list", {"group_id": int(binding["number"])}
+            )
+            if not members:
+                QMessageBox.warning(self, "主动@", "无法获取群成员列表")
+                return
+            members = [
+                m
+                for m in members
+                if str(m.get("user_id")) != str(self.service.account.get("user_id"))
+            ]
+            if not members:
+                QMessageBox.warning(self, "主动@", "群内没有其他成员")
+                return
+            choices = []
+            member_map = {}
+            for m in members:
+                qq = str(m.get("user_id", ""))
+                name = m.get("card") or m.get("nickname") or qq
+                label = f"{name} ({qq})"
+                choices.append(label)
+                member_map[label] = qq
+            from PySide6.QtWidgets import QInputDialog
+
+            choice, ok = QInputDialog.getItem(
+                self,
+                "选择群友",
+                "选择要@的群友（留空随机）",
+                ["随机选择"] + choices,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            target_qq = None if choice == "随机选择" else member_map.get(choice)
+            completion = lambda messages: self.pet.bili_panel.service.completion(
+                messages, key, self.base, self.model
+            )
+            result = self.service.at_proactive(
+                completion, self.system, target_qq=target_qq
+            )
+            if result:
+                QMessageBox.information(
+                    self, "主动@", f"已@{result['nickname']}发起话题"
+                )
+                with self.service.lock:
+                    self.service.state["last_at_proactive"] = time.time()
+                    self.service.persist()
+            else:
+                QMessageBox.warning(self, "主动@", "发送失败")
+        except Exception as exc:
+            QMessageBox.warning(self, "主动@", f"错误：{exc}")
+
     def approve(self, name, args):
         request = {
             "event": threading.Event(),
@@ -409,6 +485,20 @@ class QQPanel(QDialog):
                 messages, key, self.base, self.model
             )
             self.run("space", lambda: self.service.space_tick(completion, self.system))
+            cfg = self.service.config()
+            if cfg.get("at_proactive_enabled"):
+                last_at = self.service.state.get("last_at_proactive", 0)
+                interval = cfg.get("at_proactive_interval_minutes", 120) * 60
+                if now - last_at >= interval and "at_proactive" not in self.jobs:
+                    self.run("at_proactive", lambda: self._do_at_proactive(completion))
+
+    def _do_at_proactive(self, completion):
+        result = self.service.at_proactive(completion, self.system)
+        if result:
+            with self.service.lock:
+                self.service.state["last_at_proactive"] = time.time()
+                self.service.persist()
+            self.status_label.setText(f"已主动@{result['nickname']}发起话题")
 
     def reply(self, batch, key):
         self.pet.ds_busy = True
@@ -446,7 +536,7 @@ class QQPanel(QDialog):
                 remote=True,
                 progress=progress,
             )
-            self.service.send(batch["binding"], reply)
+            self.service.send(batch["binding"], reply, reply_to_qq=batch.get("user_id"))
             return reply
 
         def completed(value, error):
