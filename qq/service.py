@@ -197,6 +197,9 @@ def normalize(values):
             binding[key] = raw.get(key, default)
             if not isinstance(binding[key], bool):
                 raise ValueError("Binding " + key + " must be boolean")
+        mp = raw.get("member_personas", {})
+        if isinstance(mp, dict):
+            binding["member_personas"] = {str(k): str(v)[:20000] for k, v in mp.items()}
         bindings.append(binding)
     cfg["bindings"] = bindings
     if not isinstance(cfg["space_schedule"], list) or len(cfg["space_schedule"]) > 12:
@@ -1063,7 +1066,12 @@ class QQService:
         if binding["gate"] and not batch["mentioned"]:
             prompt += "\nIf this is not talking to you or needs no response, return only [NO_REPLY], without calling tools."
         if cfg["persona_enabled"]:
-            prompt += "\n" + (binding["persona"] or cfg["persona"])
+            sender_qq = str(batch.get("user_id", ""))
+            member_personas = binding.get("member_personas", {})
+            if sender_qq and sender_qq in member_personas:
+                prompt += "\n" + member_personas[sender_qq]
+            else:
+                prompt += "\n" + (binding["persona"] or cfg["persona"])
         if cfg["only_marked"]:
             prompt += "\nWrap the final reply in [QQ]...[/QQ]; only that block is delivered. [NO_REPLY] remains unwrapped."
         with self.lock:
@@ -1841,7 +1849,9 @@ class QQService:
         group_bindings = [
             b
             for b in cfg["bindings"]
-            if b["enabled"] and b["kind"] == "group" and b["number"] == "747869735"
+            if b["enabled"]
+            and b["kind"] == "group"
+            and b["number"] in ("747869735", "780773979")
         ]
         if not group_bindings:
             return None
@@ -1894,14 +1904,18 @@ class QQService:
                 f"问问{nickname}对某件事怎么看",
             ]
             topic = random.choice(topics)
+            member_personas = binding.get("member_personas", {})
+            persona_hint = member_personas.get(qq_num, "")
+            sys_prompt = (
+                system
+                + f" 主动@群友发起话题。目标：{nickname}(QQ:{qq_num})。话题：{topic}。用[CQ:at,qq={qq_num}]开头，然后写1-2句自然的话，可加[sticker:情绪]。只输出消息内容。"
+            )
+            if persona_hint:
+                sys_prompt += f"\n对方人设参考：{persona_hint}"
             text = str(
                 completion(
                     [
-                        {
-                            "role": "system",
-                            "content": system
-                            + f" 主动@群友发起话题。目标：{nickname}(QQ:{qq_num})。话题：{topic}。用[CQ:at,qq={qq_num}]开头，然后写1-2句自然的话，可加[sticker:情绪]。只输出消息内容。",
-                        },
+                        {"role": "system", "content": sys_prompt},
                         {"role": "user", "content": f"@{nickname}发起话题"},
                     ]
                 ).get("content")

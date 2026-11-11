@@ -1284,6 +1284,15 @@ class PetWindow(QWidget):
         qq_menu.addAction("现在收一轮", self.qq_panel.poll)
         qq_menu.addAction("发送测试句（需确认）", self.qq_panel.test_send)
         qq_menu.addAction("主动@群友发起话题", self.qq_panel.manual_at_proactive)
+        group_menu = qq_menu.addMenu("管理群聊")
+        cfg = self.qq_panel.service.config()
+        for b in cfg["bindings"]:
+            if b["kind"] == "group" and b["enabled"]:
+                name = b.get("name") or f"群{b['number']}"
+                action = group_menu.addAction(f"{name} ({b['number']})")
+                action.triggered.connect(
+                    lambda checked, binding=b: self.qq_panel.edit_group_binding(binding)
+                )
         m.addSeparator()
         m.addAction("显示/隐藏", self.toggle_visible)
         m.addAction("回到屏幕内", self.snap_into_screen)

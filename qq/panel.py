@@ -5,6 +5,8 @@ import os
 import threading
 import time
 
+import requests
+
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -373,7 +375,9 @@ class QQPanel(QDialog):
         group_bindings = [
             b
             for b in cfg["bindings"]
-            if b["enabled"] and b["kind"] == "group" and b["number"] == "747869735"
+            if b["enabled"]
+            and b["kind"] == "group"
+            and b["number"] in ("747869735", "780773979")
         ]
         if not group_bindings:
             QMessageBox.warning(self, "主动@", "没有可用的群聊绑定")
@@ -432,6 +436,271 @@ class QQPanel(QDialog):
                 QMessageBox.warning(self, "主动@", "发送失败")
         except Exception as exc:
             QMessageBox.warning(self, "主动@", f"错误：{exc}")
+
+    def edit_group_binding(self, binding):
+        from PySide6.QtWidgets import (
+            QDialog,
+            QFormLayout,
+            QCheckBox,
+            QTextEdit,
+            QDialogButtonBox,
+            QPushButton,
+            QVBoxLayout,
+            QHBoxLayout,
+            QInputDialog,
+        )
+
+        import json as _json, os as _os
+
+        _cfg_path = str(self.service.home / "config.json")
+        try:
+            with open(_cfg_path, encoding="utf-8") as _f:
+                _disk_cfg = _json.load(_f)
+            current = next(
+                (
+                    b
+                    for b in _disk_cfg.get("bindings", [])
+                    if b["number"] == binding["number"]
+                ),
+                None,
+            )
+        except Exception:
+            current = None
+        if not current:
+            cfg = self.service.config()
+            current = next(
+                (b for b in cfg["bindings"] if b["number"] == binding["number"]), None
+            )
+        if not current:
+            return
+        dialog = QDialog(self)
+        name = current.get("name") or f"群{current['number']}"
+        dialog.setWindowTitle(f"配置 {name}")
+        dialog.resize(600, 500)
+        layout = QVBoxLayout(dialog)
+
+        form = QFormLayout()
+        gate_check = QCheckBox("不@不回复（gate模式）")
+        gate_check.setChecked(current.get("gate", False))
+        form.addRow(gate_check)
+        persona_edit = QTextEdit()
+        persona_edit.setPlainText(current.get("persona", ""))
+        persona_edit.setMaximumHeight(150)
+        form.addRow("群人设", persona_edit)
+        layout.addLayout(form)
+
+        member_persona_section = QVBoxLayout()
+        member_persona_section.addWidget(QLabel("群友人设（为特定QQ号设置独立人设）"))
+        member_list = QTextEdit()
+        member_list.setReadOnly(True)
+        member_list.setMaximumHeight(120)
+        member_personas = current.get("member_personas", {})
+        self._refresh_member_list(current, member_list, member_personas)
+        member_persona_section.addWidget(member_list)
+
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("添加/编辑群友人设")
+        add_btn.clicked.connect(
+            lambda: self._edit_member_persona(current, member_list, member_personas)
+        )
+        btn_row.addWidget(add_btn)
+        del_btn = QPushButton("删除群友人设")
+        del_btn.clicked.connect(
+            lambda: self._delete_member_persona(current, member_list, member_personas)
+        )
+        btn_row.addWidget(del_btn)
+        member_persona_section.addLayout(btn_row)
+        layout.addLayout(member_persona_section)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            current["gate"] = gate_check.isChecked()
+            current["mention_only"] = gate_check.isChecked()
+            current["at_only"] = gate_check.isChecked()
+            current["persona"] = persona_edit.toPlainText()
+            current["member_personas"] = member_personas
+            try:
+                cfg = self.service.config()
+                for b in cfg["bindings"]:
+                    if b["number"] == current["number"]:
+                        b.update(current)
+                        break
+                self.service.save(cfg)
+                QMessageBox.information(self, "群聊配置", f"{name} 配置已保存")
+            except Exception as exc:
+                QMessageBox.warning(self, "群聊配置", f"保存失败：{exc}")
+
+    def _get_member_name(self, group_number, qq):
+        try:
+            cfg = self.service.config()
+            token = cfg.get("token", "")
+            if not token:
+                return qq
+            headers = {"Authorization": f"Bearer {token}"}
+            r = requests.get(
+                f"http://127.0.0.1:3000/get_group_member_list?group_id={group_number}",
+                headers=headers,
+                timeout=5,
+            )
+            members = r.json().get("data", [])
+            for m in members:
+                if str(m.get("user_id")) == str(qq):
+                    return m.get("card") or m.get("nickname") or qq
+        except Exception:
+            pass
+        return qq
+
+    def _refresh_member_list(self, binding, list_widget, personas_dict):
+        try:
+            cfg = self.service.config()
+            token = cfg.get("token", "")
+            if not token:
+                list_widget.setPlainText("无法获取群成员（缺少token）")
+                return
+            headers = {"Authorization": f"Bearer {token}"}
+            r = requests.get(
+                f"http://127.0.0.1:3000/get_group_member_list?group_id={binding['number']}",
+                headers=headers,
+                timeout=5,
+            )
+            members = r.json().get("data", [])
+            self_account = str(self.service.account.get("user_id", ""))
+            lines = []
+            shown_qqs = set()
+            for m in members:
+                qq = str(m.get("user_id", ""))
+                if qq == self_account:
+                    continue
+                shown_qqs.add(qq)
+                name = m.get("card") or m.get("nickname") or "未知"
+                persona = personas_dict.get(qq, "")
+                if persona:
+                    text = persona[:40] + "..." if len(persona) > 40 else persona
+                    lines.append(f"★ {name} ({qq}): {text}")
+                else:
+                    lines.append(f"  {name} ({qq})")
+            for qq, persona in personas_dict.items():
+                if qq not in shown_qqs and persona:
+                    text = persona[:40] + "..." if len(persona) > 40 else persona
+                    lines.append(f"★ ({qq}): {text}")
+            list_widget.setPlainText("\n".join(lines) if lines else "群内无其他成员")
+        except Exception as exc:
+            list_widget.setPlainText(f"获取群成员失败：{exc}")
+
+    def _edit_member_persona(self, binding, list_widget, personas_dict):
+        from PySide6.QtWidgets import (
+            QInputDialog,
+            QDialog,
+            QFormLayout,
+            QLineEdit,
+            QTextEdit,
+            QDialogButtonBox,
+        )
+
+        try:
+            import json as _json
+
+            _cfg_path = str(self.service.home / "config.json")
+            with open(_cfg_path, encoding="utf-8") as _f:
+                _disk_cfg = _json.load(_f)
+            _disk_binding = next(
+                (
+                    b
+                    for b in _disk_cfg.get("bindings", [])
+                    if b["number"] == binding["number"]
+                ),
+                {},
+            )
+            personas_dict.update(_disk_binding.get("member_personas", {}))
+            cfg = self.service.config()
+            token = cfg.get("token", "")
+            headers = {"Authorization": f"Bearer {token}"}
+            r = requests.get(
+                f"http://127.0.0.1:3000/get_group_member_list?group_id={binding['number']}",
+                headers=headers,
+                timeout=5,
+            )
+            members = r.json().get("data", [])
+            self_account = str(self.service.account.get("user_id", ""))
+            choices = []
+            qq_map = {}
+            name_map = {}
+            for m in members:
+                qq = str(m.get("user_id", ""))
+                if qq == self_account:
+                    continue
+                name = m.get("card") or m.get("nickname") or "未知"
+                label = f"{name} ({qq})"
+                choices.append(label)
+                qq_map[label] = qq
+                name_map[qq] = name
+            if not choices:
+                QMessageBox.warning(self, "群友人设", "群内无其他成员")
+                return
+            choice, ok = QInputDialog.getItem(
+                self, "选择群友", "选择要设置人设的群友：", choices, 0, False
+            )
+            if not ok or not choice:
+                return
+            qq = qq_map[choice]
+            member_name = name_map.get(qq, qq)
+        except Exception:
+            qq, ok = QInputDialog.getText(self, "群友人设", "输入QQ号：")
+            if not ok or not qq.strip():
+                return
+            qq = qq.strip()
+            member_name = qq
+
+        current_persona = personas_dict.get(qq, "")
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"群友人设 - {member_name} ({qq})")
+        dialog.resize(500, 300)
+        layout = QFormLayout(dialog)
+        persona_edit = QTextEdit()
+        persona_edit.setPlainText(current_persona)
+        layout.addRow("人设内容", persona_edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            text = persona_edit.toPlainText().strip()
+            if text:
+                personas_dict[qq] = text
+            else:
+                personas_dict.pop(qq, None)
+            self._refresh_member_list(binding, list_widget, personas_dict)
+
+    def _delete_member_persona(self, binding, list_widget, personas_dict):
+        from PySide6.QtWidgets import QInputDialog
+
+        if not personas_dict:
+            QMessageBox.information(self, "删除", "暂无群友人设")
+            return
+        choices = [
+            f"{self._get_member_name(binding['number'], q)} ({q})"
+            for q in personas_dict.keys()
+        ]
+        qq_map = {
+            f"{self._get_member_name(binding['number'], q)} ({q})": q
+            for q in personas_dict.keys()
+        }
+        choice, ok = QInputDialog.getItem(
+            self, "删除群友人设", "选择要删除的群友：", choices, 0, False
+        )
+        if ok and choice:
+            qq = qq_map.get(choice)
+            if qq:
+                personas_dict.pop(qq, None)
+                self._refresh_member_list(binding, list_widget, personas_dict)
 
     def approve(self, name, args):
         request = {
