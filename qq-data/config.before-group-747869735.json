@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "dry_run": true,
+  "backend": "http://127.0.0.1:3000",
+  "token": "6449057b514d7921024ee173750a3056ff712518f7312376d4a16f1331f46441",
+  "bindings": []
+}

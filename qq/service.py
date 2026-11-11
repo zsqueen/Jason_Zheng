@@ -854,6 +854,7 @@ class QQService:
                 if following["left"] <= 0 or now >= following["until"]:
                     return False
                 following["left"] -= 1
+                self.follow[key] = following
             if (
                 not (mention and cfg["mention_always"])
                 and random.random() * 100 >= cfg["reply_probability"]

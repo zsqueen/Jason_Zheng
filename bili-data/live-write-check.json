@@ -1,0 +1,77 @@
+{
+  "target": {
+    "bvid": "BV161nZ6JE6b",
+    "uid": 3493093655448204
+  },
+  "comment": {
+    "status": "failed_or_uncertain",
+    "error": "接口返回错误代码：12074，信息：努力升级到lv2再来评论吧。\n{'code': 12074, 'message': '努力升级到lv2再来评论吧', 'ttl': 1, 'data': None}"
+  },
+  "dm": {
+    "status": "returned",
+    "result": {
+      "success": true,
+      "receipt": {
+        "msg_key": 7704619026762936743,
+        "msg_content": "{\"content\": \"\\u684c\\u5ba0\\u529f\\u80fd\\u6d4b\\u8bd5\\uff1a\\u9a8c\\u8bc1B\\u7ad9\\u79c1\\u4fe1\\u63a5\\u53e3\\u3002\"}",
+        "key_hit_infos": {}
+      }
+    }
+  },
+  "like_fav": {
+    "status": "returned",
+    "result": {
+      "success": true,
+      "actions": [
+        "点赞",
+        "收藏"
+      ],
+      "title": "零基础deepseek养鱼教程"
+    }
+  },
+  "dynamic": {
+    "status": "returned",
+    "result": {
+      "success": true,
+      "receipt": {
+        "dyn_id": 1267157116351676437,
+        "dyn_id_str": "1267157116351676437",
+        "dyn_type": 2,
+        "dyn_rid": 414488039
+      },
+      "note": "接口成功不代表已公开可见"
+    }
+  },
+  "video_state": {
+    "verified": {
+      "liked": 1,
+      "favoured": true
+    }
+  },
+  "dm_readback": {
+    "verified": true
+  },
+  "previous_attempts": [
+    {
+      "operation": "comment",
+      "status": "failed_or_uncertain",
+      "error": "接口返回错误代码：-107，信息：账号未转正。\n{'code': -107, 'message': '账号未转正', 'ttl': 1, 'data': None}"
+    },
+    {
+      "operation": "dm",
+      "status": "failed_or_uncertain",
+      "error": "接口返回错误代码：21016，信息：你的等级不够，暂时不能发言~。\n{'code': 21016, 'message': '你的等级不够，暂时不能发言~', 'ttl': 1, 'data': None}"
+    },
+    {
+      "operation": "dynamic",
+      "status": "failed_or_uncertain",
+      "error": "接口返回错误代码：4126021，信息：等级不足无法发送，快去努力升级吧。\n{'code': 4126021, 'message': '等级不足无法发送，快去努力升级吧', 'ttl': 1, 'data': None}"
+    }
+  ],
+  "dynamic_readback": {
+    "verified": true
+  },
+  "dynamic_public_readback": {
+    "verified": true
+  }
+}
