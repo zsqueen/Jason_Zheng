@@ -834,6 +834,16 @@ class QQService:
         parts = segments(message.get("message", message.get("raw_message", "")))
         mention = self.mentioned(parts)
         if binding["kind"] == "group":
+            has_at = any(part.get("type") == "at" for part in parts)
+            if has_at:
+                mention = any(
+                    part.get("type") == "at"
+                    and str((part.get("data") or {}).get("qq"))
+                    == str(self.account.get("user_id", ""))
+                    for part in parts
+                )
+                if not mention:
+                    return False
             if binding.get("at_only", False):
                 mention = any(
                     part.get("type") == "at"
@@ -1064,6 +1074,8 @@ class QQService:
             kit = get_kit()
             emotions = kit.list_emotions()
             prompt += f"\n【表情包功能已启用】你可以直接在回复末尾用 [sticker:情绪词] 发送大肥鱼GIF表情包，系统会自动下载并发送图片，不需要手动操作。可用情绪：{'、'.join(emotions)}等。只在情绪明显匹配时发，不要每条都发。示例：被夸→[sticker:害羞]，搞笑→[sticker:大笑]，打招呼→[sticker:打招呼]，难过→[sticker:安慰]。"
+        if binding["kind"] == "group":
+            prompt += "\n【群聊@规则】当你在回复中提到某个群成员时，必须使用@名称格式（例如@张三），系统会自动转换为正确的@。提到爸爸时用@爸爸-Jayson Zheng。"
         if binding["gate"] and not batch["mentioned"]:
             prompt += "\nIf this is not talking to you or needs no response, return only [NO_REPLY], without calling tools."
         if cfg["persona_enabled"]:
