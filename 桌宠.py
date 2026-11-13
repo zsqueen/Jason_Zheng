@@ -1283,7 +1283,6 @@ class PetWindow(QWidget):
         qq_menu.addAction("检查QQ账号", self.qq_panel.check_account)
         qq_menu.addAction("现在收一轮", self.qq_panel.poll)
         qq_menu.addAction("发送测试句（需确认）", self.qq_panel.test_send)
-        qq_menu.addAction("主动@群友发起话题", self.qq_panel.manual_at_proactive)
         group_menu = qq_menu.addMenu("管理群聊")
         cfg = self.qq_panel.service.config()
         for b in cfg["bindings"]:

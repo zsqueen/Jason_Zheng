@@ -122,7 +122,6 @@ class QQPanel(QDialog):
             ("现在收一轮", self.poll),
             ("真实发送测试句", self.test_send),
             ("打开QQ后端登录页", self.open_backend),
-            ("主动@群友", self.manual_at_proactive),
         ):
             button = QPushButton(title)
             button.clicked.connect(callback)
@@ -366,6 +365,52 @@ class QQPanel(QDialog):
             ),
         )
 
+    def manual_at_proactive_for_binding(self, binding):
+        key = self.pet.cfg.get("ds_api_key", "")
+        if not key:
+            QMessageBox.warning(self, "主动@", "请先配置API Key")
+            return
+        if not binding.get("auto_at_enabled", False):
+            QMessageBox.warning(
+                self,
+                "主动@",
+                "该群未启用主动@功能，请在群管理中勾选'允许主动@群友发起话题'",
+            )
+            return
+        try:
+            members = self.service.call(
+                "get_group_member_list", {"group_id": int(binding["number"])}
+            )
+            if not members:
+                QMessageBox.warning(self, "主动@", "无法获取群成员列表")
+                return
+            members = [
+                m
+                for m in members
+                if str(m.get("user_id")) != str(self.service.account.get("user_id"))
+            ]
+            if not members:
+                QMessageBox.warning(self, "主动@", "群内没有其他成员")
+                return
+            import random
+
+            target = random.choice(members)
+            qq_num = str(target.get("user_id", ""))
+            nickname = target.get("card") or target.get("nickname") or qq_num
+            completion = lambda topic: f"[CQ:at,qq={qq_num}] {topic}"
+            result = self.service.at_proactive(
+                completion, self.system, target_qq=qq_num
+            )
+            if result:
+                QMessageBox.information(
+                    self, "主动@", f"已@{result['nickname']}发起话题"
+                )
+                self.service.state["last_at_proactive"] = time.time()
+            else:
+                QMessageBox.warning(self, "主动@", "发送失败")
+        except Exception as exc:
+            QMessageBox.warning(self, "主动@", f"错误：{exc}")
+
     def manual_at_proactive(self):
         key = self.pet.cfg.get("ds_api_key", "")
         if not key:
@@ -375,14 +420,16 @@ class QQPanel(QDialog):
         group_bindings = [
             b
             for b in cfg["bindings"]
-            if b["enabled"]
-            and b["kind"] == "group"
-            and b["number"] in ("747869735", "780773979")
+            if b["enabled"] and b["kind"] == "group" and b.get("auto_at_enabled", False)
         ]
         if not group_bindings:
-            QMessageBox.warning(self, "主动@", "没有可用的群聊绑定")
+            QMessageBox.warning(
+                self,
+                "主动@",
+                "没有启用主动@功能的群聊，请在群管理中勾选'允许主动@群友发起话题'",
+            )
             return
-        binding = group_bindings[0]
+        binding = random.choice(group_bindings)
         try:
             members = self.service.call(
                 "get_group_member_list", {"group_id": int(binding["number"])}
@@ -483,6 +530,9 @@ class QQPanel(QDialog):
         gate_check = QCheckBox("不@不回复（gate模式）")
         gate_check.setChecked(current.get("gate", False))
         form.addRow(gate_check)
+        auto_at_check = QCheckBox("允许主动@群友发起话题")
+        auto_at_check.setChecked(current.get("auto_at_enabled", False))
+        form.addRow(auto_at_check)
         persona_edit = QTextEdit()
         persona_edit.setPlainText(current.get("persona", ""))
         persona_edit.setMaximumHeight(150)
@@ -509,6 +559,9 @@ class QQPanel(QDialog):
             lambda: self._delete_member_persona(current, member_list, member_personas)
         )
         btn_row.addWidget(del_btn)
+        at_btn = QPushButton("现在主动@群友")
+        at_btn.clicked.connect(lambda: self.manual_at_proactive_for_binding(current))
+        btn_row.addWidget(at_btn)
         member_persona_section.addLayout(btn_row)
         layout.addLayout(member_persona_section)
 
@@ -523,6 +576,7 @@ class QQPanel(QDialog):
             current["gate"] = gate_check.isChecked()
             current["mention_only"] = gate_check.isChecked()
             current["at_only"] = gate_check.isChecked()
+            current["auto_at_enabled"] = auto_at_check.isChecked()
             current["persona"] = persona_edit.toPlainText()
             current["member_personas"] = member_personas
             try:

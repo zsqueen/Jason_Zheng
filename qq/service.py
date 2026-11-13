@@ -855,6 +855,41 @@ class QQService:
                     return False
             following = self.follow.get(key, {"left": 0, "until": 0})
             exception = sender in re.split(r"[\s,，;；]+", binding["exceptions"])
+            muted_until = self.state.get("muted", {}).get(f"{key}:{sender}", 0)
+            if mention:
+                text_lower = text.lower()
+                stop_keywords = [
+                    "闭嘴",
+                    "别说了",
+                    "别说话",
+                    "安静",
+                    "住口",
+                    "禁言",
+                    "不要说话",
+                    "别吵",
+                    "烦死了",
+                    "闭嘴吧",
+                    "shut up",
+                    "stop",
+                    "quiet",
+                    "silent",
+                    "别回",
+                    "不用回复",
+                    "别@了",
+                    "别艾特",
+                    "不要再说了",
+                    "够了",
+                    "打住",
+                ]
+                is_stop_command = any(kw in text_lower for kw in stop_keywords)
+                if is_stop_command:
+                    mute_duration = 15 * 60
+                    with self.lock:
+                        muted_map = self.state.setdefault("muted", {})
+                        muted_map[f"{key}:{sender}"] = now + mute_duration
+                        self.persist()
+                    self.log(f"已静音 {sender} (群{binding['number']}) 15分钟")
+                    return False
             if mention:
                 self.follow[key] = {
                     "left": cfg["follow_messages"],
@@ -865,6 +900,9 @@ class QQService:
                     return False
                 following["left"] -= 1
                 self.follow[key] = following
+            if now < muted_until:
+                self.log(f"跳过被静音用户 {sender} (群{binding['number']})")
+                return False
             if (
                 not (mention and cfg["mention_always"])
                 and random.random() * 100 >= cfg["reply_probability"]
@@ -1081,10 +1119,23 @@ class QQService:
         if cfg["persona_enabled"]:
             sender_qq = str(batch.get("user_id", ""))
             member_personas = binding.get("member_personas", {})
-            if sender_qq and sender_qq in member_personas:
-                prompt += "\n" + member_personas[sender_qq]
-            else:
-                prompt += "\n" + (binding["persona"] or cfg["persona"])
+            all_personas = {}
+            for b in cfg.get("bindings", []):
+                mp = b.get("member_personas", {})
+                if mp:
+                    all_personas.update(mp)
+            if not all_personas:
+                all_personas = member_personas
+            if sender_qq and sender_qq in all_personas:
+                prompt += "\n【当前对话者信息】" + all_personas[sender_qq]
+            if all_personas:
+                prompt += (
+                    "\n【你认识的所有人】以下是你认识的群友,记住他们的QQ号和角色:\n"
+                )
+                for qq, desc in all_personas.items():
+                    prompt += f"- QQ号{qq}: {desc}\n"
+                prompt += "\n当有人问你是否认识某个QQ号或某人时,必须参考以上信息回答。如果对方QQ号在列表中但你说不认识,就是错误的。"
+            prompt += "\n" + (binding["persona"] or cfg["persona"])
         if cfg["only_marked"]:
             prompt += "\nWrap the final reply in [QQ]...[/QQ]; only that block is delivered. [NO_REPLY] remains unwrapped."
         with self.lock:
@@ -1360,10 +1411,15 @@ class QQService:
                 break
             message = self.text_segments(part, binding)
             if index == 0:
-                if cq_ats:
-                    for qq_num in cq_ats:
-                        message.insert(0, {"type": "at", "data": {"qq": qq_num}})
-                elif need_at:
+                has_cq_at = any(m.get("type") == "at" for m in message)
+                already_at_target = any(
+                    m.get("type") == "at"
+                    and str(m.get("data", {}).get("qq")) == str(reply_to_qq)
+                    for m in message
+                )
+                if not has_cq_at and need_at:
+                    message.insert(0, {"type": "at", "data": {"qq": str(reply_to_qq)}})
+                elif has_cq_at and need_at and not already_at_target:
                     message.insert(0, {"type": "at", "data": {"qq": str(reply_to_qq)}})
                 for picture in pictures:
                     message.append(
@@ -1864,6 +1920,7 @@ class QQService:
             for b in cfg["bindings"]
             if b["enabled"]
             and b["kind"] == "group"
+            and b.get("auto_at_enabled", False)
             and b["number"] in ("747869735", "780773979")
         ]
         if not group_bindings:
